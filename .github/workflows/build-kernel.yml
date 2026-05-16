@@ -1,157 +1,128 @@
-name: Build Kernel - Spes Gaming KSU Next
+name: GACOR Kernel for Redmi Note 11 (spes) - No OC
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
+    - name: Install tools
+      run: |
+        sudo apt update
+        sudo apt install -y git make gcc clang lld flex bison bc cpio python3 libssl-dev
 
-      - name: Setup Build Environment
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
-            git curl wget zip unzip \
-            bc bison flex libssl-dev \
-            libelf-dev libncurses5-dev \
-            binutils-aarch64-linux-gnu \
-            gcc-aarch64-linux-gnu \
-            python3 python3-pip \
-            build-essential cpio make
+    - name: Download toolchain
+      run: |
+        git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_host_linux-x86_clang-17 clang
+        git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 gcc64
+        git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 gcc32
 
-      - name: Setup Clang Toolchain
-        run: |
-          mkdir -p $HOME/clang
-          wget -q https://github.com/ZyCromerZ/Clang/releases/download/20.0.0git-20250101-release/Clang-20.0.0git-20250101.tar.gz -O clang.tar.gz
-          tar -xf clang.tar.gz -C $HOME/clang
-          echo "$HOME/clang/bin" >> $GITHUB_PATH
+    - name: Clone kernel source
+      run: |
+        git clone --depth=1 https://github.com/Jabiyeff/kernel_xiaomi_sm6225 -b main kernel
 
-      - name: Clone Kernel Source
-        run: |
-          git clone --depth=1 \
-            -b spes-r-oss \
-            https://github.com/mi-sdm680/android_kernel_xiaomi_sm6225 \
-            kernel_source
-          echo "=== List defconfigs ==="
-          ls kernel_source/arch/arm64/configs/ | grep -i spes || ls kernel_source/arch/arm64/configs/
+    - name: Patch KernelSU-Next
+      run: |
+        cd kernel
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
 
-      - name: Setup KernelSU Next
-        run: |
-          cd kernel_source
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
-          echo "KernelSU Next done!"
+    - name: Tuning GACOR (No OC)
+      run: |
+        cd kernel
+        
+        # Load defconfig
+        make ARCH=arm64 spes_defconfig
+        
+        # ============================================
+        # OPTIMASI GAMING (NO OVERCLOCK)
+        # ============================================
+        
+        # Aktifin TCP BBR - buat koneksi stabil & kenceng
+        echo "CONFIG_TCP_CONG_BBR=y" >> arch/arm64/configs/spes_defconfig
+        echo "CONFIG_DEFAULT_TCP_CONG=\"bbr\"" >> arch/arm64/configs/spes_defconfig
+        
+        # Aktifin Westwood + Cubic cadangan
+        echo "CONFIG_TCP_CONG_WESTWOOD=y" >> arch/arm64/configs/spes_defconfig
+        echo "CONFIG_TCP_CONG_CUBIC=y" >> arch/arm64/configs/spes_defconfig
+        
+        # Aktifin HZ 1000 buat respons lebih cepat (standar 300)
+        echo "CONFIG_HZ=1000" >> arch/arm64/configs/spes_defconfig
+        echo "CONFIG_HZ_1000=y" >> arch/arm64/configs/spes_defconfig
+        
+        # Governor schedutil + performa buat gaming
+        echo "CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y" >> arch/arm64/configs/spes_defconfig
+        echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> arch/arm64/configs/spes_defconfig
+        
+        # Aktifin quick wakeup buat touch respons lebih cepet
+        echo "CONFIG_PM_WAKELOCKS=y" >> arch/arm64/configs/spes_defconfig
+        echo "CONFIG_PM_WAKELOCKS_LIMIT=100" >> arch/arm64/configs/spes_defconfig
+        
+        # Matiin debug & logging (bikin kernel enteng)
+        echo "# CONFIG_DEBUG_KERNEL is not set" >> arch/arm64/configs/spes_defconfig
+        echo "# CONFIG_DEBUG_INFO is not set" >> arch/arm64/configs/spes_defconfig
+        echo "# CONFIG_PRINTK is not set" >> arch/arm64/configs/spes_defconfig
+        
+        # Aktifin UKSM buat manajemen memori lebih efisien
+        echo "CONFIG_UKSM=y" >> arch/arm64/configs/spes_defconfig
+        
+        # Aktifin ZRAM buat multitasking gaming
+        echo "CONFIG_ZRAM=y" >> arch/arm64/configs/spes_defconfig
+        echo "CONFIG_ZRAM_DEF_COMPRESSOR_LZ4=y" >> arch/arm64/configs/spes_defconfig
+        
+        # Aktifin TCP Fast Open buat koneksi cepet
+        echo "CONFIG_TCP_FASTOPEN=y" >> arch/arm64/configs/spes_defconfig
+        
+        # Aktifin NF Contrack buat koneksi stabil
+        echo "CONFIG_NF_CONNTRACK=y" >> arch/arm64/configs/spes_defconfig
+        
+        # Aktifin VirtIO WiFi buat sinyal lebih stabil
+        echo "CONFIG_VIRTIO_NET=y" >> arch/arm64/configs/spes_defconfig
+        
+        # Optimasi I/O scheduler (pake BFQ atau MQ-Deadline)
+        echo "CONFIG_BFQ_GROUP_IOSCHED=y" >> arch/arm64/configs/spes_defconfig
+        echo "CONFIG_DEFAULT_BFQ=y" >> arch/arm64/configs/spes_defconfig
+        
+        # Aktifin KSM buat sharing memory (hemat RAM)
+        echo "CONFIG_KSM=y" >> arch/arm64/configs/spes_defconfig
+        
+        # Re-generate config
+        make ARCH=arm64 olddefconfig
 
-      - name: Build Kernel
-        run: |
-          cd kernel_source
-          export ARCH=arm64
-          export PATH=$HOME/clang/bin:$PATH
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CC=clang
-          export LLVM=1
-          export LLVM_IAS=1
+    - name: Build kernel GACOR
+      run: |
+        cd kernel
+        export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$GITHUB_WORKSPACE/gcc32/bin:$PATH
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-android-
+        export CROSS_COMPILE_ARM32=arm-linux-androideabi-
+        export CLANG_TRIPLE=aarch64-linux-gnu-
+        export CC=clang
+        make ARCH=arm64 -j$(nproc)
 
-          # Cari defconfig otomatis
-          DEFCONFIG=$(ls arch/arm64/configs/ | grep -i spes | head -1)
-          if [ -z "$DEFCONFIG" ]; then
-            DEFCONFIG=$(ls arch/arm64/configs/ | grep -i vendor | head -1)
-          fi
-          echo "=== Using defconfig: $DEFCONFIG ==="
-
-          # Tambah gaming tweaks
-          cat >> arch/arm64/configs/$DEFCONFIG << 'EOF'
-# Gaming tweaks
-CONFIG_HZ=300
-CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-CONFIG_IOSCHED_BFQ=y
-CONFIG_BFQ_GROUP_IOSCHED=y
-CONFIG_DEFAULT_BFQ=y
-CONFIG_TCP_CONG_BBR=y
-CONFIG_DEFAULT_BBR=y
-CONFIG_NET_SCH_FQ=y
-CONFIG_ZRAM=y
-CONFIG_ZSMALLOC=y
-CONFIG_DEBUG_KERNEL=n
-CONFIG_SLUB_DEBUG=n
-CONFIG_DEBUG_PREEMPT=n
-EOF
-
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            $DEFCONFIG
-
-          make -j$(nproc --all) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            2>&1 | tee build.log
-
-      - name: Check Build Result
-        run: |
-          if [ -f kernel_source/out/arch/arm64/boot/Image.gz ]; then
-            echo "SUCCESS!"
-          elif [ -f kernel_source/out/arch/arm64/boot/Image ]; then
-            cp kernel_source/out/arch/arm64/boot/Image kernel_source/out/arch/arm64/boot/Image.gz
-            echo "SUCCESS! (Image)"
-          else
-            echo "FAILED!"
-            tail -100 kernel_source/build.log
-            exit 1
-          fi
-
-      - name: Package AnyKernel3
-        run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
-          cp kernel_source/out/arch/arm64/boot/Image.gz AnyKernel3/
-          cp kernel_source/out/arch/arm64/boot/dtbo.img AnyKernel3/ 2>/dev/null || true
-
-          cat > AnyKernel3/anykernel.sh << 'EOF'
-properties() { '
-kernel.string=GamingKernel-KSUNext | spes | Gaming Build
+    - name: Package with AnyKernel3
+      run: |
+        git clone https://github.com/osm0sis/AnyKernel3
+        cp kernel/arch/arm64/boot/Image.gz AnyKernel3/
+        cp kernel/arch/arm64/boot/dtbo.img AnyKernel3/ 2>/dev/null || true
+        cd AnyKernel3
+        cat > anykernel.sh << 'EOF'
+#!/sbin/sh
+kernel.string=GACOR Kernel for Redmi Note 11 (spes) - No OC
 do.devicecheck=1
-do.modules=0
-do.systemless=0
-do.cleanup=1
-do.cleanuponabort=0
 device.name1=spes
 device.name2=spesn
-supported.versions=13
-'; }
-boot_attributes() {
-    set_perm_recursive 0 0 755 644 $RAMDISK/*;
-    set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
-}
-BLOCK=auto;
-IS_SLOT_DEVICE=0;
-RAMDISK_COMPRESSION=auto;
-PATCH_VBMETA_FLAG=auto;
-. tools/ak3-core.sh;
-ui_print "=====================================";
-ui_print " Gaming Kernel - KSU Next            ";
-ui_print " Redmi Note 11 4G (spes) - Android13 ";
-ui_print "=====================================";
-dump_boot;
-write_boot;
+block=boot
+. /tmp/anykernel/tools/ak2-core.sh
+dump_boot
+write_boot
 EOF
+        zip -r9 ../GACOR_Kernel_spes.zip *
+        cd ..
 
-          DATE=$(date +%Y%m%d-%H%M)
-          cd AnyKernel3
-          zip -r9 "../GamingKernel-KSUNext-spes-${DATE}.zip" . -x ".git*"
-
-      - name: Upload Kernel ZIP
-        uses: actions/upload-artifact@v4
-        with:
-          name: GamingKernel-KSUNext-spes
-          path: GamingKernel-KSUNext-spes-*.zip
-          retention-days: 7
-
-      - name: Upload Build Log if Failed
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: kernel_source/build.log
-          retention-days: 3
+    - name: Upload kernel zip
+      uses: actions/upload-artifact@v4
+      with:
+        name: GACOR-Kernel-spes-NoOC
+        path: GACOR_Kernel_spes.zip
