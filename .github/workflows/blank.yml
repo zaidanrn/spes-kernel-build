@@ -1,68 +1,73 @@
-name: Build Kernel for Redmi Note 11 (spes/spesn)
+name: Build SPES Gaming Kernel
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
+
     steps:
-    - name: Install dependencies
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Install Dependencies
       run: |
         sudo apt update
-        sudo apt install -y git make gcc clang lld flex bison bc cpio python3 libssl-dev
+        sudo apt install -y \
+          bc bison build-essential ccache curl flex gcc-aarch64-linux-gnu \
+          gcc-arm-linux-gnueabi git libssl-dev lld make python3 zip unzip \
+          gcc clang llvm lzop rsync
 
-    - name: Setup toolchain
+    - name: Setup KernelSU
       run: |
-        git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_host_linux-x86_clang-17 clang
-        git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 gcc64
-        git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 gcc32
+        curl -LSs https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh | bash -
 
-    - name: Clone kernel source
+    - name: Clone AnyKernel3
       run: |
-        git clone --depth=1 https://github.com/Jabiyeff/kernel_xiaomi_sm6225 -b main kernel
+        git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
 
-    - name: Patch KernelSU-Next
+    - name: Export Environment
       run: |
-        cd kernel
-        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
+        echo "ARCH=arm64" >> $GITHUB_ENV
+        echo "SUBARCH=arm64" >> $GITHUB_ENV
+        echo "KBUILD_BUILD_USER=NeoGPT" >> $GITHUB_ENV
+        echo "KBUILD_BUILD_HOST=SPES-GAMING" >> $GITHUB_ENV
 
-    - name: Set config and build
+    - name: Configure Kernel
       run: |
-        cd kernel
-        export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$GITHUB_WORKSPACE/gcc32/bin:$PATH
-        export ARCH=arm64
-        export SUBARCH=arm64
-        export CROSS_COMPILE=aarch64-linux-android-
-        export CROSS_COMPILE_ARM32=arm-linux-androideabi-
-        export CLANG_TRIPLE=aarch64-linux-gnu-
-        export CC=clang
-        
-        make ARCH=arm64 spes_defconfig
-        make ARCH=arm64 -j$(nproc)
+        make O=out ARCH=arm64 spes_defconfig
 
-    - name: Create AnyKernel3 zip
+    - name: Apply Gaming Tweaks
       run: |
-        git clone https://github.com/osm0sis/AnyKernel3
-        cp kernel/arch/arm64/boot/Image.gz AnyKernel3/
-        cp kernel/arch/arm64/boot/dtbo.img AnyKernel3/ 2>/dev/null || true
+        echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> out/.config
+        echo "CONFIG_UCLAMP_TASK=y" >> out/.config
+        echo "CONFIG_SCHED_TUNE=y" >> out/.config
+        echo "CONFIG_HZ_300=y" >> out/.config
+        echo "CONFIG_HZ=300" >> out/.config
+        echo "CONFIG_PREEMPT=y" >> out/.config
+        echo "CONFIG_TCP_CONG_BBR=y" >> out/.config
+
+    - name: Build Kernel
+      run: |
+        make -j$(nproc --all) \
+        O=out \
+        ARCH=arm64 \
+        CC=clang \
+        CROSS_COMPILE=aarch64-linux-gnu- \
+        CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+
+    - name: Prepare AnyKernel
+      run: |
+        cp out/arch/arm64/boot/Image.gz AnyKernel3/
+
+    - name: Create Flashable ZIP
+      run: |
         cd AnyKernel3
-        cat > anykernel.sh << 'EOF'
-#!/sbin/sh
-kernel.string=Kernel for Redmi Note 11 (spes/spesn)
-do.devicecheck=1
-device.name1=spes
-device.name2=spesn
-block=boot
-. /tmp/anykernel/tools/ak2-core.sh
-dump_boot
-write_boot
-EOF
-        zip -r9 ../kernel_flashable.zip .
-        cd ..
+        zip -r9 SPES-GAMING-KSU.zip *
 
-    - name: Upload artifact
+    - name: Upload ZIP
       uses: actions/upload-artifact@v4
       with:
-        name: Kernel-spes-spesn
-        path: kernel_flashable.zip
+        name: SPES-GAMING-KSU
+        path: AnyKernel3/SPES-GAMING-KSU.zip
