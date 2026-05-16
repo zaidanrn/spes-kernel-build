@@ -34,9 +34,24 @@ jobs:
           echo "KBUILD_BUILD_USER=NeoGPT" >> $GITHUB_ENV
           echo "KBUILD_BUILD_HOST=SPES-GAMING" >> $GITHUB_ENV
 
+      - name: Detect Defconfig
+        run: |
+          find arch/arm64/configs/ | grep spes || true
+
       - name: Configure Kernel
         run: |
-          make O=out ARCH=arm64 spes_defconfig
+          DEFCONFIG=$(find arch/arm64/configs -name "*spes*" | head -n 1)
+
+          if [ -z "$DEFCONFIG" ]; then
+            echo "No spes defconfig found!"
+            exit 1
+          fi
+
+          DEFCONFIG_NAME=$(basename $DEFCONFIG)
+
+          echo "Using defconfig: $DEFCONFIG_NAME"
+
+          make O=out ARCH=arm64 $DEFCONFIG_NAME
 
       - name: Add Gaming Config
         run: |
@@ -57,9 +72,20 @@ jobs:
           ARCH=arm64 \
           CC=clang
 
+      - name: Find Image
+        run: |
+          find out/arch/arm64/boot/
+
       - name: Copy Image
         run: |
-          cp out/arch/arm64/boot/Image.gz AnyKernel3/
+          IMAGE=$(find out/arch/arm64/boot/ -name "Image.gz*" | head -n 1)
+
+          if [ -z "$IMAGE" ]; then
+            echo "Kernel image not found!"
+            exit 1
+          fi
+
+          cp $IMAGE AnyKernel3/Image.gz
 
       - name: Create Flashable ZIP
         run: |
