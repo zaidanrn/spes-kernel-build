@@ -30,65 +30,55 @@ jobs:
       - name: Clone Kernel Source
         run: |
           git clone --depth=1 \
-            -b thirteen \
-            https://github.com/RiProG-id/android_kernel_xiaomi_sm6225 \
+            -b spes-r-oss \
+            https://github.com/mi-sdm680/android_kernel_xiaomi_sm6225 \
             kernel_source
           echo "Kernel cloned!"
+          ls kernel_source/arch/arm64/configs/
 
       - name: Setup KernelSU Next
         run: |
           cd kernel_source
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
-          echo "KernelSU Next setup done!"
+          echo "KernelSU Next done!"
 
-      - name: Apply Gaming Performance Configs
+      - name: Apply Gaming Configs
         run: |
           cd kernel_source
-
-          # Cari defconfig yang ada
-          DEFCONFIG=$(find arch/arm64/configs -name "*spes*" | head -1)
+          DEFCONFIG=$(find arch/arm64/configs -name "*spes*perf*" -o -name "*perf*spes*" | head -1)
+          if [ -z "$DEFCONFIG" ]; then
+            DEFCONFIG=$(find arch/arm64/configs -name "*spes*" | head -1)
+          fi
           if [ -z "$DEFCONFIG" ]; then
             DEFCONFIG=$(find arch/arm64/configs -name "*perf*" | head -1)
           fi
-          echo "Using defconfig: $DEFCONFIG"
+          echo "Using: $DEFCONFIG"
           echo "DEFCONFIG_NAME=$(basename $DEFCONFIG)" >> $GITHUB_ENV
 
           cat >> $DEFCONFIG << 'EOF'
 
-          # ===== GAMING PERFORMANCE TWEAKS =====
+          # Gaming tweaks
           CONFIG_HZ=300
           CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
           CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-
-          # I/O Scheduler
           CONFIG_IOSCHED_BFQ=y
           CONFIG_BFQ_GROUP_IOSCHED=y
           CONFIG_DEFAULT_BFQ=y
-
-          # TCP BBR
-          CONFIG_TCP_CONG_ADVANCED=y
           CONFIG_TCP_CONG_BBR=y
           CONFIG_DEFAULT_BBR=y
           CONFIG_NET_SCH_FQ=y
-
-          # Memory
           CONFIG_ZRAM=y
           CONFIG_ZSMALLOC=y
-
-          # Disable debug
           CONFIG_DEBUG_KERNEL=n
           CONFIG_SLUB_DEBUG=n
           CONFIG_DEBUG_PREEMPT=n
-          CONFIG_LOCKUP_DETECTOR=n
           EOF
           echo "Gaming configs applied!"
 
       - name: Build Kernel
         run: |
           cd kernel_source
-
           export ARCH=arm64
-          export SUBARCH=arm64
           export PATH=$HOME/clang/bin:$PATH
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CC=clang
@@ -103,25 +93,21 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             2>&1 | tee build.log
 
-          echo "Build done!"
-
       - name: Check Build Result
         run: |
           if [ -f kernel_source/out/arch/arm64/boot/Image.gz ]; then
-            echo "SUCCESS! Kernel image found!"
+            echo "SUCCESS!"
           else
-            echo "FAILED! No kernel image."
-            tail -50 kernel_source/build.log
+            echo "FAILED!"
+            tail -100 kernel_source/build.log
             exit 1
           fi
 
-      - name: Package with AnyKernel3
+      - name: Package AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
-
           cp kernel_source/out/arch/arm64/boot/Image.gz AnyKernel3/
           cp kernel_source/out/arch/arm64/boot/dtbo.img AnyKernel3/ 2>/dev/null || true
-          cp kernel_source/out/arch/arm64/boot/dtb.img AnyKernel3/ 2>/dev/null || true
 
           cat > AnyKernel3/anykernel.sh << 'EOF'
           properties() { '
@@ -135,24 +121,19 @@ jobs:
           device.name2=spesn
           supported.versions=13
           '; }
-
           boot_attributes() {
               set_perm_recursive 0 0 755 644 $RAMDISK/*;
               set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
           }
-
           BLOCK=auto;
           IS_SLOT_DEVICE=0;
           RAMDISK_COMPRESSION=auto;
           PATCH_VBMETA_FLAG=auto;
           . tools/ak3-core.sh;
-
           ui_print "=====================================";
           ui_print " Gaming Kernel - KSU Next            ";
-          ui_print " Device : Redmi Note 11 4G (spes)    ";
-          ui_print " Android : 13 ArrowOS                ";
+          ui_print " Redmi Note 11 4G (spes) - Android13 ";
           ui_print "=====================================";
-
           dump_boot;
           write_boot;
           EOF
@@ -160,7 +141,6 @@ jobs:
           DATE=$(date +%Y%m%d-%H%M)
           cd AnyKernel3
           zip -r9 "../GamingKernel-KSUNext-spes-${DATE}.zip" . -x ".git*"
-          echo "ZIP created!"
 
       - name: Upload Kernel ZIP
         uses: actions/upload-artifact@v4
@@ -169,10 +149,11 @@ jobs:
           path: GamingKernel-KSUNext-spes-*.zip
           retention-days: 7
 
-      - name: Upload Build Log
+      - name: Upload Build Log if Failed
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
           path: kernel_source/build.log
           retention-days: 3
+          
