@@ -1,6 +1,9 @@
 name: Build Kernel - Spes Gaming KSU Next
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
