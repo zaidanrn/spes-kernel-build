@@ -34,24 +34,13 @@ jobs:
           echo "KBUILD_BUILD_USER=NeoGPT" >> $GITHUB_ENV
           echo "KBUILD_BUILD_HOST=SPES-GAMING" >> $GITHUB_ENV
 
-      - name: Detect Defconfig
+      - name: Show Defconfigs
         run: |
-          find arch/arm64/configs/ | grep spes || true
+          find arch/arm64/configs -type f
 
       - name: Configure Kernel
         run: |
-          DEFCONFIG=$(find arch/arm64/configs -name "*spes*" | head -n 1)
-
-          if [ -z "$DEFCONFIG" ]; then
-            echo "No spes defconfig found!"
-            exit 1
-          fi
-
-          DEFCONFIG_NAME=$(basename $DEFCONFIG)
-
-          echo "Using defconfig: $DEFCONFIG_NAME"
-
-          make O=out ARCH=arm64 $DEFCONFIG_NAME
+          make O=out ARCH=arm64 vendor/xiaomi-sm6225_defconfig
 
       - name: Add Gaming Config
         run: |
@@ -72,7 +61,7 @@ jobs:
           ARCH=arm64 \
           CC=clang
 
-      - name: Find Image
+      - name: Find Kernel Image
         run: |
           find out/arch/arm64/boot/
 
