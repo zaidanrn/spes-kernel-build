@@ -1,93 +1,52 @@
-name: Build SPES Gaming Kernel
+name: Build Kernel
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout Source
-        uses: actions/checkout@v4
+      - name: Checkout kernel source
+        uses: actions/checkout@v3
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
-          sudo apt update
-          sudo apt install -y \
-          git bc bison build-essential flex libssl-dev \
-          clang lld zip unzip python3 rsync cpio curl
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison flex libssl-dev \
+            libelf-dev git zip
 
-      - name: Find Kernel Root
+      - name: Setup Clang toolchain
         run: |
-          find . -type d | grep "arch/arm64"
+          mkdir clang
+          cd clang
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r487747.tar.gz
+          tar -xf clang-r487747.tar.gz
 
-      - name: Set Kernel Directory
+      - name: Integrate KernelSU
         run: |
-          KERNEL_DIR=$(find . -type d | grep "arch/arm64" | head -n1 | sed 's#/arch/arm64##')
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
 
-          echo "KERNEL_DIR=$KERNEL_DIR" >> $GITHUB_ENV
-
-          echo "Kernel dir is:"
-          echo $KERNEL_DIR
-
-      - name: Clone AnyKernel3
+      - name: Build kernel
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git
+          export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+          make ARCH=arm64 \
+               CC=clang \
+               vendor/spes_defconfig
+          make ARCH=arm64 CC=clang -j$(nproc)
 
-      - name: Configure Kernel
+      - name: Package with AnyKernel3
         run: |
-          cd $KERNEL_DIR
-
-          find arch/arm64/configs -type f
-
-          DEFCONFIG=$(find arch/arm64/configs -type f | head -n1)
-
-          DEFNAME=$(basename $DEFCONFIG)
-
-          echo "Using $DEFNAME"
-
-          make O=out ARCH=arm64 $DEFNAME
-
-      - name: Add Gaming Tweaks
-        run: |
-          cd $KERNEL_DIR
-
-          echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> out/.config
-          echo "CONFIG_TCP_CONG_BBR=y" >> out/.config
-          echo "CONFIG_HZ_300=y" >> out/.config
-          echo "CONFIG_HZ=300" >> out/.config
-
-      - name: Build Kernel
-        run: |
-          cd $KERNEL_DIR
-
-          make -j$(nproc --all) \
-          O=out \
-          ARCH=arm64 \
-          CC=clang
-
-      - name: Find Image
-        run: |
-          cd $KERNEL_DIR
-
-          find out/arch/arm64/boot/
-
-      - name: Copy Image
-        run: |
-          cd $KERNEL_DIR
-
-          IMAGE=$(find out/arch/arm64/boot/ -name "Image*" | head -n1)
-
-          cp $IMAGE ../../AnyKernel3/Image.gz
-
-      - name: Create ZIP
-        run: |
+          git clone https://github.com/osm0sis/AnyKernel3
+          cp arch/arm64/boot/Image.gz-dtb AnyKernel3/
           cd AnyKernel3
-          zip -r9 SPES-GAMING.zip *
+          zip -r9 kernel-spes-KSU.zip . \
+            -x '*.git*' -x 'README.md'
 
-      - name: Upload ZIP
-        uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
         with:
-          name: SPES-GAMING
-          path: AnyKernel3/SPES-GAMING.zip
+          name: kernel-spes-KSU
+          path: AnyKernel3/kernel-spes-KSU.zip
