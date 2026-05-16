@@ -15,74 +15,79 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y \
-          git bc bison build-essential curl flex gcc-aarch64-linux-gnu \
-          gcc-arm-linux-gnueabi libssl-dev lld make python3 zip unzip \
-          clang llvm lzop rsync cpio
+          git bc bison build-essential flex libssl-dev \
+          clang lld zip unzip python3 rsync cpio curl
+
+      - name: Find Kernel Root
+        run: |
+          find . -type d | grep "arch/arm64"
+
+      - name: Set Kernel Directory
+        run: |
+          KERNEL_DIR=$(find . -type d | grep "arch/arm64" | head -n1 | sed 's#/arch/arm64##')
+
+          echo "KERNEL_DIR=$KERNEL_DIR" >> $GITHUB_ENV
+
+          echo "Kernel dir is:"
+          echo $KERNEL_DIR
 
       - name: Clone AnyKernel3
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-
-      - name: Setup KernelSU
-        run: |
-          git clone https://github.com/tiann/KernelSU.git KernelSU
-
-      - name: Export Environment
-        run: |
-          echo "ARCH=arm64" >> $GITHUB_ENV
-          echo "SUBARCH=arm64" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_USER=NeoGPT" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_HOST=SPES-GAMING" >> $GITHUB_ENV
-
-      - name: Show Defconfigs
-        run: |
-          find arch/arm64/configs -type f
+          git clone https://github.com/osm0sis/AnyKernel3.git
 
       - name: Configure Kernel
         run: |
-          make O=out ARCH=arm64 vendor/xiaomi-sm6225_defconfig
+          cd $KERNEL_DIR
 
-      - name: Add Gaming Config
+          find arch/arm64/configs -type f
+
+          DEFCONFIG=$(find arch/arm64/configs -type f | head -n1)
+
+          DEFNAME=$(basename $DEFCONFIG)
+
+          echo "Using $DEFNAME"
+
+          make O=out ARCH=arm64 $DEFNAME
+
+      - name: Add Gaming Tweaks
         run: |
-          echo "CONFIG_KSU=y" >> out/.config
-          echo "CONFIG_KSU_KPROBES_HOOK=y" >> out/.config
+          cd $KERNEL_DIR
+
           echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> out/.config
-          echo "CONFIG_UCLAMP_TASK=y" >> out/.config
-          echo "CONFIG_SCHED_TUNE=y" >> out/.config
+          echo "CONFIG_TCP_CONG_BBR=y" >> out/.config
           echo "CONFIG_HZ_300=y" >> out/.config
           echo "CONFIG_HZ=300" >> out/.config
-          echo "CONFIG_PREEMPT=y" >> out/.config
-          echo "CONFIG_TCP_CONG_BBR=y" >> out/.config
 
       - name: Build Kernel
         run: |
+          cd $KERNEL_DIR
+
           make -j$(nproc --all) \
           O=out \
           ARCH=arm64 \
           CC=clang
 
-      - name: Find Kernel Image
+      - name: Find Image
         run: |
+          cd $KERNEL_DIR
+
           find out/arch/arm64/boot/
 
       - name: Copy Image
         run: |
-          IMAGE=$(find out/arch/arm64/boot/ -name "Image.gz*" | head -n 1)
+          cd $KERNEL_DIR
 
-          if [ -z "$IMAGE" ]; then
-            echo "Kernel image not found!"
-            exit 1
-          fi
+          IMAGE=$(find out/arch/arm64/boot/ -name "Image*" | head -n1)
 
-          cp $IMAGE AnyKernel3/Image.gz
+          cp $IMAGE ../../AnyKernel3/Image.gz
 
-      - name: Create Flashable ZIP
+      - name: Create ZIP
         run: |
           cd AnyKernel3
-          zip -r9 SPES-GAMING-KSU.zip *
+          zip -r9 SPES-GAMING.zip *
 
       - name: Upload ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: SPES-GAMING-KSU
-          path: AnyKernel3/SPES-GAMING-KSU.zip
+          name: SPES-GAMING
+          path: AnyKernel3/SPES-GAMING.zip
