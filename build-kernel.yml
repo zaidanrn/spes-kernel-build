@@ -1,0 +1,206 @@
+name: Build Kernel - Spes Gaming KSU Next
+
+on:
+  workflow_dispatch:
+    inputs:
+      KERNEL_SOURCE:
+        description: 'Kernel Source URL'
+        required: true
+        default: 'https://github.com/astroBoy69/android_kernel_xiaomi_sm6225'
+      KERNEL_BRANCH:
+        description: 'Kernel Branch'
+        required: true
+        default: 'fourteen'
+      KERNELSU_NEXT:
+        description: 'Use KernelSU Next'
+        required: true
+        default: 'true'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Build Environment
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            git curl wget zip unzip \
+            bc bison flex libssl-dev \
+            libelf-dev libncurses5-dev \
+            binutils-aarch64-linux-gnu \
+            python3 python3-pip \
+            build-essential cpio \
+            make
+
+      - name: Setup Clang Toolchain
+        run: |
+          mkdir -p $HOME/clang
+          wget -q https://github.com/ZyCromerZ/Clang/releases/download/20.0.0git-20250101-release/Clang-20.0.0git-20250101.tar.gz -O clang.tar.gz
+          tar -xf clang.tar.gz -C $HOME/clang
+          echo "$HOME/clang/bin" >> $GITHUB_PATH
+
+      - name: Clone Kernel Source
+        run: |
+          git clone --depth=1 \
+            -b ${{ github.event.inputs.KERNEL_BRANCH }} \
+            ${{ github.event.inputs.KERNEL_SOURCE }} \
+            kernel_source
+
+      - name: Setup KernelSU Next
+        if: ${{ github.event.inputs.KERNELSU_NEXT == 'true' }}
+        run: |
+          cd kernel_source
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s next
+          echo "KernelSU Next setup done!"
+
+      - name: Apply Gaming Performance Configs
+        run: |
+          cd kernel_source
+          # Tuning performa gaming ke defconfig
+          cat >> arch/arm64/configs/vendor/spes-perf_defconfig << 'EOF'
+
+          # ===== GAMING PERFORMANCE TWEAKS =====
+          CONFIG_HZ=300
+          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+          CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+          CONFIG_CPU_BOOST=y
+          CONFIG_DYNAMIC_STUNE_BOOST=y
+
+          # I/O Scheduler - optimal gaming
+          CONFIG_IOSCHED_BFQ=y
+          CONFIG_BFQ_GROUP_IOSCHED=y
+          CONFIG_DEFAULT_BFQ=y
+
+          # TCP Optimizations
+          CONFIG_TCP_CONG_ADVANCED=y
+          CONFIG_TCP_CONG_BBR=y
+          CONFIG_DEFAULT_BBR=y
+          CONFIG_NET_SCH_FQ=y
+          CONFIG_NET_SCH_FQ_CODEL=y
+
+          # Memory Optimizations
+          CONFIG_ZRAM=y
+          CONFIG_ZRAM_DEF_COMP_ZSTD=y
+          CONFIG_ZSMALLOC=y
+          CONFIG_ZSWAP=y
+          CONFIG_TRANSPARENT_HUGEPAGE=y
+          CONFIG_TRANSPARENT_HUGEPAGE_ALWAYS=y
+
+          # Disable debug overhead
+          CONFIG_DEBUG_KERNEL=n
+          CONFIG_SLUB_DEBUG=n
+          CONFIG_DEBUG_PREEMPT=n
+          CONFIG_LOCKUP_DETECTOR=n
+          CONFIG_DETECT_HUNG_TASK=n
+
+          # LTO Optimization
+          CONFIG_LTO_CLANG_THIN=y
+
+          # Schedutil tuning
+          CONFIG_ENERGY_MODEL=y
+          CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+          EOF
+          echo "Gaming configs applied!"
+
+      - name: Build Kernel
+        run: |
+          cd kernel_source
+
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CLANG_PATH=$HOME/clang/bin
+          export PATH=$CLANG_PATH:$PATH
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CC=clang
+          export LLVM=1
+          export LLVM_IAS=1
+
+          # Build
+          make O=out \
+            ARCH=arm64 \
+            CC=clang \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            vendor/spes-perf_defconfig
+
+          make -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            CC=clang \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            2>&1 | tee build.log
+
+          echo "Build finished!"
+
+      - name: Package with AnyKernel3
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
+          
+          # Copy kernel image
+          cp kernel_source/out/arch/arm64/boot/Image.gz AnyKernel3/
+          cp kernel_source/out/arch/arm64/boot/dtbo.img AnyKernel3/ 2>/dev/null || true
+
+          # Setup anykernel.sh
+          cat > AnyKernel3/anykernel.sh << 'EOF'
+          properties() { '
+          kernel.string=GamingKernel-KSU-Next | spes | by GH Actions
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=0
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=spes
+          device.name2=spesn
+          supported.versions=13
+          '; }
+
+          boot_attributes() {
+              set_perm_recursive 0 0 755 644 $RAMDISK/*;
+              set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
+          }
+
+          BLOCK=auto;
+          IS_SLOT_DEVICE=0;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
+          . tools/ak3-core.sh;
+
+          ui_print "=====================================";
+          ui_print " Gaming Kernel - KSU Next            ";
+          ui_print " Device: Redmi Note 11 4G (spes)     ";
+          ui_print " Android 13 - AOSP ArrowOS            ";
+          ui_print " Performance Gaming Build             ";
+          ui_print "=====================================";
+
+          dump_boot;
+          write_boot;
+          EOF
+
+          # Zip
+          DATE=$(date +%Y%m%d-%H%M)
+          cd AnyKernel3
+          zip -r9 "../GamingKernel-KSUNext-spes-${DATE}.zip" . -x ".git*"
+          cd ..
+          echo "ZIP_NAME=GamingKernel-KSUNext-spes-${DATE}.zip" >> $GITHUB_ENV
+
+      - name: Upload Kernel ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: GamingKernel-KSUNext-spes
+          path: GamingKernel-KSUNext-spes-*.zip
+          retention-days: 7
+
+      - name: Upload Build Log (if failed)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: kernel_source/build.log
+          retention-days: 3
