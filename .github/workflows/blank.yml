@@ -8,66 +8,66 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Source
-      uses: actions/checkout@v4
+      - name: Checkout Source
+        uses: actions/checkout@v4
 
-    - name: Install Dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y \
-          bc bison build-essential ccache curl flex gcc-aarch64-linux-gnu \
-          gcc-arm-linux-gnueabi git libssl-dev lld make python3 zip unzip \
-          gcc clang llvm lzop rsync
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+          git bc bison build-essential curl flex gcc-aarch64-linux-gnu \
+          gcc-arm-linux-gnueabi libssl-dev lld make python3 zip unzip \
+          clang llvm lzop rsync cpio
 
-    - name: Setup KernelSU
-      run: |
-        curl -LSs https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh | bash -
+      - name: Clone AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
 
-    - name: Clone AnyKernel3
-      run: |
-        git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+      - name: Setup KernelSU
+        run: |
+          git clone https://github.com/tiann/KernelSU.git KernelSU
 
-    - name: Export Environment
-      run: |
-        echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "SUBARCH=arm64" >> $GITHUB_ENV
-        echo "KBUILD_BUILD_USER=NeoGPT" >> $GITHUB_ENV
-        echo "KBUILD_BUILD_HOST=SPES-GAMING" >> $GITHUB_ENV
+      - name: Export Environment
+        run: |
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "SUBARCH=arm64" >> $GITHUB_ENV
+          echo "KBUILD_BUILD_USER=NeoGPT" >> $GITHUB_ENV
+          echo "KBUILD_BUILD_HOST=SPES-GAMING" >> $GITHUB_ENV
 
-    - name: Configure Kernel
-      run: |
-        make O=out ARCH=arm64 spes_defconfig
+      - name: Configure Kernel
+        run: |
+          make O=out ARCH=arm64 spes_defconfig
 
-    - name: Apply Gaming Tweaks
-      run: |
-        echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> out/.config
-        echo "CONFIG_UCLAMP_TASK=y" >> out/.config
-        echo "CONFIG_SCHED_TUNE=y" >> out/.config
-        echo "CONFIG_HZ_300=y" >> out/.config
-        echo "CONFIG_HZ=300" >> out/.config
-        echo "CONFIG_PREEMPT=y" >> out/.config
-        echo "CONFIG_TCP_CONG_BBR=y" >> out/.config
+      - name: Add Gaming Config
+        run: |
+          echo "CONFIG_KSU=y" >> out/.config
+          echo "CONFIG_KSU_KPROBES_HOOK=y" >> out/.config
+          echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> out/.config
+          echo "CONFIG_UCLAMP_TASK=y" >> out/.config
+          echo "CONFIG_SCHED_TUNE=y" >> out/.config
+          echo "CONFIG_HZ_300=y" >> out/.config
+          echo "CONFIG_HZ=300" >> out/.config
+          echo "CONFIG_PREEMPT=y" >> out/.config
+          echo "CONFIG_TCP_CONG_BBR=y" >> out/.config
 
-    - name: Build Kernel
-      run: |
-        make -j$(nproc --all) \
-        O=out \
-        ARCH=arm64 \
-        CC=clang \
-        CROSS_COMPILE=aarch64-linux-gnu- \
-        CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+      - name: Build Kernel
+        run: |
+          make -j$(nproc --all) \
+          O=out \
+          ARCH=arm64 \
+          CC=clang
 
-    - name: Prepare AnyKernel
-      run: |
-        cp out/arch/arm64/boot/Image.gz AnyKernel3/
+      - name: Copy Image
+        run: |
+          cp out/arch/arm64/boot/Image.gz AnyKernel3/
 
-    - name: Create Flashable ZIP
-      run: |
-        cd AnyKernel3
-        zip -r9 SPES-GAMING-KSU.zip *
+      - name: Create Flashable ZIP
+        run: |
+          cd AnyKernel3
+          zip -r9 SPES-GAMING-KSU.zip *
 
-    - name: Upload ZIP
-      uses: actions/upload-artifact@v4
-      with:
-        name: SPES-GAMING-KSU
-        path: AnyKernel3/SPES-GAMING-KSU.zip
+      - name: Upload ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: SPES-GAMING-KSU
+          path: AnyKernel3/SPES-GAMING-KSU.zip
