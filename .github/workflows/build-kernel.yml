@@ -33,47 +33,14 @@ jobs:
             -b spes-r-oss \
             https://github.com/mi-sdm680/android_kernel_xiaomi_sm6225 \
             kernel_source
-          echo "Kernel cloned!"
-          ls kernel_source/arch/arm64/configs/
+          echo "=== List defconfigs ==="
+          ls kernel_source/arch/arm64/configs/ | grep -i spes || ls kernel_source/arch/arm64/configs/
 
       - name: Setup KernelSU Next
         run: |
           cd kernel_source
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
           echo "KernelSU Next done!"
-
-      - name: Apply Gaming Configs
-        run: |
-          cd kernel_source
-          DEFCONFIG=$(find arch/arm64/configs -name "*spes*perf*" -o -name "*perf*spes*" | head -1)
-          if [ -z "$DEFCONFIG" ]; then
-            DEFCONFIG=$(find arch/arm64/configs -name "*spes*" | head -1)
-          fi
-          if [ -z "$DEFCONFIG" ]; then
-            DEFCONFIG=$(find arch/arm64/configs -name "*perf*" | head -1)
-          fi
-          echo "Using: $DEFCONFIG"
-          echo "DEFCONFIG_NAME=$(basename $DEFCONFIG)" >> $GITHUB_ENV
-
-          cat >> $DEFCONFIG << 'EOF'
-
-          # Gaming tweaks
-          CONFIG_HZ=300
-          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-          CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-          CONFIG_IOSCHED_BFQ=y
-          CONFIG_BFQ_GROUP_IOSCHED=y
-          CONFIG_DEFAULT_BFQ=y
-          CONFIG_TCP_CONG_BBR=y
-          CONFIG_DEFAULT_BBR=y
-          CONFIG_NET_SCH_FQ=y
-          CONFIG_ZRAM=y
-          CONFIG_ZSMALLOC=y
-          CONFIG_DEBUG_KERNEL=n
-          CONFIG_SLUB_DEBUG=n
-          CONFIG_DEBUG_PREEMPT=n
-          EOF
-          echo "Gaming configs applied!"
 
       - name: Build Kernel
         run: |
@@ -85,9 +52,35 @@ jobs:
           export LLVM=1
           export LLVM_IAS=1
 
+          # Cari defconfig otomatis
+          DEFCONFIG=$(ls arch/arm64/configs/ | grep -i spes | head -1)
+          if [ -z "$DEFCONFIG" ]; then
+            DEFCONFIG=$(ls arch/arm64/configs/ | grep -i vendor | head -1)
+          fi
+          echo "=== Using defconfig: $DEFCONFIG ==="
+
+          # Tambah gaming tweaks
+          cat >> arch/arm64/configs/$DEFCONFIG << 'EOF'
+# Gaming tweaks
+CONFIG_HZ=300
+CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+CONFIG_IOSCHED_BFQ=y
+CONFIG_BFQ_GROUP_IOSCHED=y
+CONFIG_DEFAULT_BFQ=y
+CONFIG_TCP_CONG_BBR=y
+CONFIG_DEFAULT_BBR=y
+CONFIG_NET_SCH_FQ=y
+CONFIG_ZRAM=y
+CONFIG_ZSMALLOC=y
+CONFIG_DEBUG_KERNEL=n
+CONFIG_SLUB_DEBUG=n
+CONFIG_DEBUG_PREEMPT=n
+EOF
+
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            ${{ env.DEFCONFIG_NAME }}
+            $DEFCONFIG
 
           make -j$(nproc --all) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
@@ -97,6 +90,9 @@ jobs:
         run: |
           if [ -f kernel_source/out/arch/arm64/boot/Image.gz ]; then
             echo "SUCCESS!"
+          elif [ -f kernel_source/out/arch/arm64/boot/Image ]; then
+            cp kernel_source/out/arch/arm64/boot/Image kernel_source/out/arch/arm64/boot/Image.gz
+            echo "SUCCESS! (Image)"
           else
             echo "FAILED!"
             tail -100 kernel_source/build.log
@@ -110,33 +106,33 @@ jobs:
           cp kernel_source/out/arch/arm64/boot/dtbo.img AnyKernel3/ 2>/dev/null || true
 
           cat > AnyKernel3/anykernel.sh << 'EOF'
-          properties() { '
-          kernel.string=GamingKernel-KSUNext | spes | Gaming Build
-          do.devicecheck=1
-          do.modules=0
-          do.systemless=0
-          do.cleanup=1
-          do.cleanuponabort=0
-          device.name1=spes
-          device.name2=spesn
-          supported.versions=13
-          '; }
-          boot_attributes() {
-              set_perm_recursive 0 0 755 644 $RAMDISK/*;
-              set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
-          }
-          BLOCK=auto;
-          IS_SLOT_DEVICE=0;
-          RAMDISK_COMPRESSION=auto;
-          PATCH_VBMETA_FLAG=auto;
-          . tools/ak3-core.sh;
-          ui_print "=====================================";
-          ui_print " Gaming Kernel - KSU Next            ";
-          ui_print " Redmi Note 11 4G (spes) - Android13 ";
-          ui_print "=====================================";
-          dump_boot;
-          write_boot;
-          EOF
+properties() { '
+kernel.string=GamingKernel-KSUNext | spes | Gaming Build
+do.devicecheck=1
+do.modules=0
+do.systemless=0
+do.cleanup=1
+do.cleanuponabort=0
+device.name1=spes
+device.name2=spesn
+supported.versions=13
+'; }
+boot_attributes() {
+    set_perm_recursive 0 0 755 644 $RAMDISK/*;
+    set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
+}
+BLOCK=auto;
+IS_SLOT_DEVICE=0;
+RAMDISK_COMPRESSION=auto;
+PATCH_VBMETA_FLAG=auto;
+. tools/ak3-core.sh;
+ui_print "=====================================";
+ui_print " Gaming Kernel - KSU Next            ";
+ui_print " Redmi Note 11 4G (spes) - Android13 ";
+ui_print "=====================================";
+dump_boot;
+write_boot;
+EOF
 
           DATE=$(date +%Y%m%d-%H%M)
           cd AnyKernel3
