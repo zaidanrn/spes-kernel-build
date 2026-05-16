@@ -6,11 +6,11 @@ on:
       KERNEL_SOURCE:
         description: 'Kernel Source URL'
         required: true
-        default: 'https://github.com/astroBoy69/android_kernel_xiaomi_sm6225'
+        default: 'https://github.com/MinatiScape/android_kernel_xiaomi_sm6225'
       KERNEL_BRANCH:
         description: 'Kernel Branch'
         required: true
-        default: 'fourteen'
+        default: 'thirteen'
       KERNELSU_NEXT:
         description: 'Use KernelSU Next'
         required: true
