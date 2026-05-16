@@ -155,4 +155,3 @@ EOF
           name: build-log
           path: kernel_source/build.log
           retention-days: 3
-          
