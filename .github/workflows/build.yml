@@ -1,1 +1,88 @@
+name: Build GreenForce KernelSU-Next (spesn)
 
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Install deps
+      run: |
+        sudo apt update
+        sudo apt install -y git curl wget unzip zip bc bison flex build-essential \
+          libssl-dev ccache libncurses5-dev libelf-dev python3
+
+    - name: Clone GreenForce source
+      run: |
+        git clone --depth=1 https://github.com/GreenForceProject/android_kernel_xiaomi_sm6225 -b android13 kernel
+
+    - name: Setup KernelSU-Next
+      run: |
+        cd kernel
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/kernel/setup.sh" | bash -
+
+    - name: Apply tuning
+      run: |
+        cd kernel
+
+        # Governor
+        echo 'CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y' >> arch/arm64/configs/vendor/spes_defconfig
+
+        # TCP BBR + FQ
+        echo 'CONFIG_TCP_CONG_BBR=y' >> arch/arm64/configs/vendor/spes_defconfig
+        echo 'CONFIG_NET_SCH_FQ=y' >> arch/arm64/configs/vendor/spes_defconfig
+
+        # HZ 1000
+        echo 'CONFIG_HZ_1000=y' >> arch/arm64/configs/vendor/spes_defconfig
+        echo 'CONFIG_HZ=1000' >> arch/arm64/configs/vendor/spes_defconfig
+
+        # ZRAM LZ4
+        echo 'CONFIG_ZRAM=y' >> arch/arm64/configs/vendor/spes_defconfig
+        echo 'CONFIG_ZSMALLOC=y' >> arch/arm64/configs/vendor/spes_defconfig
+        echo 'CONFIG_CRYPTO_LZ4=y' >> arch/arm64/configs/vendor/spes_defconfig
+
+        # Disable debug
+        echo '# CONFIG_DYNAMIC_DEBUG is not set' >> arch/arm64/configs/vendor/spes_defconfig
+        echo '# CONFIG_DEBUG_KERNEL is not set' >> arch/arm64/configs/vendor/spes_defconfig
+
+    - name: Setup clang
+      run: |
+        git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
+
+    - name: Build kernel
+      run: |
+        cd kernel
+
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export KBUILD_BUILD_USER=ChatGPT
+        export KBUILD_BUILD_HOST=OpenAI
+
+        mkdir out
+
+        make O=out ARCH=arm64 vendor/spes_defconfig
+
+        PATH=$GITHUB_WORKSPACE/clang/bin:$PATH \
+        make -j$(nproc --all) O=out \
+        ARCH=arm64 \
+        CC=clang \
+        CROSS_COMPILE=aarch64-linux-gnu- \
+        CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+
+    - name: Clone AnyKernel3
+      run: |
+        git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
+        cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/
+
+    - name: Create flashable ZIP
+      run: |
+        cd AnyKernel3
+        zip -r9 GreenForce-KSUNext-spesn-A13.zip * -x .git README.md
+
+    - name: Upload ZIP
+      uses: actions/upload-artifact@v4
+      with:
+        name: GreenForce-KSUNext-spesn-A13
+        path: AnyKernel3/GreenForce-KSUNext-spesn-A13.zip
